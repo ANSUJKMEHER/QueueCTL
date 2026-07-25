@@ -1,0 +1,8 @@
+node_modules/
+workers/
+data/
+*.pid
+WALKTHROUGH.md
+scripts/demo.sh
+scripts/smoke_test.sh
+scripts/git_setup.sh

@@ -1,0 +1,15 @@
+{
+  "name": "queuectl",
+  "version": "1.0.0",
+  "description": "Background job queue",
+  "main": "bin/queuectl.js",
+  "scripts": {
+    "start": "node bin/queuectl.js dashboard",
+    "test": "node scripts/verify.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.1.2",
+    "commander": "^12.1.0",
+    "express": "^4.19.2"
+  }
+}
