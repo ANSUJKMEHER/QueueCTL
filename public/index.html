@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QueueCTL | Live Telemetry</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #050505;
+      --surface-color: rgba(20, 20, 22, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-main: #ffffff;
+      --text-muted: #8a8f98;
+      
+      --glow-pending: rgba(245, 166, 35, 0.2);
+      --glow-processing: rgba(0, 112, 243, 0.2);
+      --glow-completed: rgba(16, 185, 129, 0.2);
+      --glow-failed: rgba(239, 68, 68, 0.2);
+      --glow-dead: rgba(139, 92, 246, 0.2);
+      
+      --accent-pending: #f5a623;
+      --accent-processing: #0070f3;
+      --accent-completed: #10b981;
+      --accent-failed: #ef4444;
+      --accent-dead: #8b5cf6;
+      --accent-workers: #06b6d4;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-color);
+      background-image: 
+        radial-gradient(circle at 15% 50%, rgba(0, 112, 243, 0.08), transparent 25%),
+        radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.08), transparent 25%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      padding: 2rem;
+      box-sizing: border-box;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 4rem;
+      animation: fadeInDown 0.8s ease-out;
+    }
+
+    h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: -1.5px;
+      background: linear-gradient(to right, #fff, #a1a1aa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      font-weight: 300;
+      margin-top: 0.5rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .pulse {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-completed);
+      border-radius: 50%;
+      margin-right: 8px;
+      box-shadow: 0 0 12px var(--accent-completed);
+      animation: heartbeat 2s infinite;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+      animation: fadeInUp 0.8s ease-out;
+    }
+
+    .card {
+      background: var(--surface-color);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: var(--card-accent, #fff);
+      opacity: 0.8;
+      transition: opacity 0.3s;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 40px var(--card-glow, transparent);
+    }
+
+    .card.pending { --card-accent: var(--accent-pending); --card-glow: var(--glow-pending); }
+    .card.processing { --card-accent: var(--accent-processing); --card-glow: var(--glow-processing); }
+    .card.completed { --card-accent: var(--accent-completed); --card-glow: var(--glow-completed); }
+    .card.failed { --card-accent: var(--accent-failed); --card-glow: var(--glow-failed); }
+    .card.dead { --card-accent: var(--accent-dead); --card-glow: var(--glow-dead); }
+    
+    .card.workers { 
+      --card-accent: var(--accent-workers); 
+      grid-column: 1 / -1; 
+      flex-direction: row;
+      align-items: center;
+      background: linear-gradient(145deg, rgba(20,20,22,0.9), rgba(30,30,35,0.6));
+    }
+
+    .label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+
+    .value {
+      font-size: 4.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--text-main);
+      text-shadow: 0 0 20px rgba(255,255,255,0.1);
+      transition: color 0.3s;
+    }
+
+    .card:hover .value {
+      color: var(--card-accent);
+    }
+
+    .workers-content {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      align-items: center;
+    }
+
+    .pids-container {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .pid-badge {
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--accent-workers);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* Animations */
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.8); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes heartbeat {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.5); opacity: 1; box-shadow: 0 0 20px var(--accent-completed); }
+    }
+    
+    /* Loading state */
+    .loading .value { color: var(--text-muted); filter: blur(4px); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>QueueCTL</h1>
+      <div class="subtitle"><span class="pulse"></span> Live Telemetry</div>
+    </header>
+
+    <div class="grid" id="dashboard">
+      <div class="card pending">
+        <div class="label">Pending</div>
+        <div class="value" id="val-pending">-</div>
+      </div>
+      <div class="card processing">
+        <div class="label">Processing</div>
+        <div class="value" id="val-processing">-</div>
+      </div>
+      <div class="card completed">
+        <div class="label">Completed</div>
+        <div class="value" id="val-completed">-</div>
+      </div>
+      <div class="card failed">
+        <div class="label">Failed</div>
+        <div class="value" id="val-failed">-</div>
+      </div>
+      <div class="card dead">
+        <div class="label">Dead (DLQ)</div>
+        <div class="value" id="val-dead">-</div>
+      </div>
+      
+      <div class="card workers">
+        <div class="workers-content">
+          <div>
+            <div class="label">Active Workers</div>
+            <div class="value" id="val-workers" style="font-size: 3.5rem;">-</div>
+          </div>
+          <div class="pids-container" id="val-pids">
+            <!-- PIDs will be injected here -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function update() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        // Update job counts with smooth number transitions
+        const states = ['pending', 'processing', 'completed', 'failed', 'dead'];
+        states.forEach(s => {
+          const el = document.getElementById('val-' + s);
+          const current = parseInt(el.textContent) || 0;
+          const target = data.jobs[s] || 0;
+          if (current !== target) {
+            el.textContent = target;
+            // Trigger a quick flash animation on change
+            el.style.transform = 'scale(1.1)';
+            setTimeout(() => el.style.transform = 'scale(1)', 150);
+          }
+        });
+
+        // Update workers
+        const workersEl = document.getElementById('val-workers');
+        if (workersEl.textContent != data.workers.length) {
+           workersEl.textContent = data.workers.length;
+        }
+
+        // Render PIDs beautifully
+        const pidsContainer = document.getElementById('val-pids');
+        pidsContainer.innerHTML = '';
+        if (data.workers && data.workers.length > 0) {
+          data.workers.forEach(w => {
+            const badge = document.createElement('div');
+            badge.className = 'pid-badge';
+            badge.textContent = `PID: ${w.pid}`;
+            pidsContainer.appendChild(badge);
+          });
+        }
+      } catch (err) {
+        console.error('Telemetry offline', err);
+      }
+    }
+
+    setInterval(update, 1500);
+    update();
+  </script>
+</body>
+</html>
