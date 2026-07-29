@@ -4,7 +4,7 @@
   "description": "Background job queue",
   "main": "bin/queuectl.js",
   "scripts": {
-    "start": "node bin/queuectl.js dashboard",
+    "start": "bash start.sh",
     "test": "node scripts/verify.js"
   },
   "dependencies": {
