@@ -16,6 +16,10 @@
 
 *(Demonstrates core usage, multi-worker concurrency, and untrappable `SIGKILL` crash recovery)*
 
+### 🌐 [View the Live Real-Time Dashboard Here](https://queuectl-af0k.onrender.com) 🌐
+
+*(An active simulation is running in the background to demonstrate state transitions)*
+
 </div>
 
 ---
