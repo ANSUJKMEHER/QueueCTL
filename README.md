@@ -1,221 +1,158 @@
-# queuectl
+<div align="center">
+  
+# 🚀 QueueCTL
+  
+**A robust, CLI-based background job queue built for resilience.**
 
-A CLI-based background job queue with atomic job claiming, crash recovery, and retry/dead-letter-queue semantics.
+[![Node.js](https://img.shields.io/badge/Node.js-v22+-success?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL_Mode-blue?logo=sqlite&logoColor=white)](https://sqlite.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Architecture
+*Features atomic job claiming, untrappable crash recovery, dead-letter-queue semantics, and a stunning real-time telemetry dashboard.*
 
+---
+
+### 🎥 [Watch the End-to-End Demo Recording Here](https://drive.google.com/file/d/1yI9bbdSxo2g1iS9coNRharyWE9AU3s-P/view?usp=sharing) 🎥
+
+*(Demonstrates core usage, multi-worker concurrency, and untrappable `SIGKILL` crash recovery)*
+
+</div>
+
+---
+
+## 🧠 Architecture Overview
+
+At its core, QueueCTL leverages **SQLite in WAL (Write-Ahead Logging) mode** to allow concurrent reads and writes across multiple forked worker processes. 
+
+```mermaid
+graph TD;
+    CLI[queuectl CLI] -->|Enqueue / Status / Config| SQLite[(SQLite DB)]
+    Supervisor[Supervisor Process] -->|Forks| Worker1[Worker 1]
+    Supervisor -->|Forks| Worker2[Worker 2]
+    Supervisor -->|Forks| WorkerN[Worker N]
+    
+    Worker1 <-->|Atomic UPDATE Claims| SQLite
+    Worker2 <-->|Heartbeats| SQLite
+    WorkerN <-->|Reaper Sweeps| SQLite
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    queuectl CLI                         │
-│  enqueue │ worker start/stop │ status │ list │ dlq │ config  │
-└────────────┬──────────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────────┐
-│                   SQLite (WAL mode)                     │
-│  ┌──────────┐  ┌──────────┐                             │
-│  │  jobs    │  │  config  │                             │
-│  └──────────┘  └──────────┘                             │
-└──────────┬──────────────────────────────────────────────┘
-           │ read/write (file-level locking)
-           ▼
-┌──────────────────────────────────────────────────────────┐
-│                    Supervisor                            │
-│  Forks N worker child processes                         │
-│  Forwards SIGTERM/SIGINT → IPC shutdown                 │
-│  Writes PID files to workers/                           │
-│                                                         │
-│  ┌────────┐  ┌────────┐  ┌────────┐                     │
-│  │Worker 1│  │Worker 2│  │Worker N│                     │
-│  │        │  │        │  │        │                     │
-│  │ Claim  │  │ Claim  │  │ Claim  │  (atomic UPDATE)    │
-│  │ Execute│  │ Execute│  │ Execute│  (child_process)    │
-│  │ Heartbeat│ │ Heartbeat│ │ Heartbeat│ (every 5s)      │
-│  │ Reaper │  │ Reaper │  │ Reaper │  (every iteration) │
-│  └────────┘  └────────┘  └────────┘                     │
-└──────────────────────────────────────────────────────────┘
-```
 
-### Key Design Decisions
+### 🎯 Key Design Decisions
 
-- **Atomic claiming**: A single `UPDATE ... WHERE state='pending'` with a subquery. SQLite serializes writers at the file level, so two workers racing on the same job get exactly one `changes=1` and one `changes=0`. No application-level locking needed.
-- **Crash recovery**: Each worker runs a reaper sweep every loop iteration, reclaiming jobs stuck in `processing` past a 20s lease timeout. Worst-case recovery: ≤30s.
-- **Config snapshot**: `max_retries` and `backoff_base` are snapshotted onto jobs at creation time. Changing global config only affects future jobs.
+- **Atomic Claiming**: A single `UPDATE ... WHERE state='pending'` with a subquery guarantees that concurrent workers never claim the same job. No external locks needed.
+- **Untrappable Crash Recovery**: Workers run a "Reaper" sweep every loop iteration. If a worker process is hard-killed (`kill -9`) mid-execution, its active jobs are recovered after a 20s heartbeat lease timeout.
+- **Graceful Shutdown**: Workers intercept `SIGTERM` and `SIGINT`, finishing their currently executing job before exiting gracefully.
 
-See [DECISIONS.md](DECISIONS.md) for detailed design rationale.
+> 📖 *See [DECISIONS.md](DECISIONS.md) for the complete design rationale and deep-dive into the state machine mechanics.*
 
-## Prerequisites
+---
 
-- **OS**: Linux (tested on Ubuntu/WSL2)
-- **Node.js**: v22+
-- **Build tools** (for `better-sqlite3` native module):
-  ```bash
-  sudo apt update && sudo apt install -y build-essential python3
-  ```
+## 🛠️ Setup & Installation
 
-## Setup
-
-**Important Note:** This project was developed and tested on WSL2/Linux. POSIX signal handling (used for graceful shutdown via \`worker stop\`) requires a Unix-like environment and will not work correctly on native Windows.
+**Prerequisites:** Linux/WSL2, Node.js (v22+), and build tools for SQLite.
 
 ```bash
+# 1. Install dependencies
+sudo apt update && sudo apt install -y build-essential python3
+
+# 2. Clone and install
 git clone <repo-url> && cd queuectl
 npm install
-```
 
-To make `queuectl` available globally (optional):
-```bash
+# 3. Make globally executable (optional)
 npm link
 ```
+> ⚠️ **Note:** This project utilizes POSIX signal handling for graceful shutdowns (`SIGTERM`), which requires a Unix-like environment (Linux/Mac/WSL2).
 
-## Usage
+---
 
-### Enqueue a Job
+## 💻 CLI Usage Guide
 
+### ➕ Enqueue Jobs
 ```bash
 # Basic job
 node bin/queuectl.js enqueue '{"id":"job1","command":"echo Hello World"}'
 
-# With custom retry settings
-node bin/queuectl.js enqueue '{"id":"job2","command":"curl https://example.com","max_retries":5,"backoff_base":3}'
+# Custom retries and backoff
+node bin/queuectl.js enqueue '{"id":"job2","command":"sleep 10","max_retries":5,"backoff_base":3}'
 ```
 
-### Start Workers
-
+### 👷 Worker Management
 ```bash
-# Start 3 workers (foreground, blocks until stopped)
+# Start a supervisor with 3 parallel workers
 node bin/queuectl.js worker start --count 3
-```
 
-Workers shut down gracefully on `SIGTERM` or `SIGINT` (Ctrl+C) — they finish the current job before exiting.
-
-### Stop Workers (from another terminal)
-
-```bash
+# Safely signal workers to finish current jobs and stop (from another terminal)
 node bin/queuectl.js worker stop
 ```
 
-### Check Status
-
+### 📊 Monitoring & Introspection
 ```bash
-$ node bin/queuectl.js status
-=== Job Queue Status ===
-  Pending:    0
-  Processing: 0
-  Completed:  1
-  Failed:     0
-  Dead (DLQ): 0
+# View aggregated counts
+node bin/queuectl.js status
 
-  Active workers: 0
+# List jobs by state (human readable)
+node bin/queuectl.js list --state pending
+
+# Export machine-readable JSON for automation
+node bin/queuectl.js list --state completed --json
 ```
 
-### List Jobs
-
+### 💀 Dead Letter Queue (DLQ)
+Jobs that fail all their retries are moved to the DLQ.
 ```bash
-# Human-readable
-$ node bin/queuectl.js list --state pending
-
-ID                   STATE        ATTEMPTS   COMMAND                        CREATED
-------------------------------------------------------------------------------------------
-job1                 pending      0          echo Hello World               2026-07-28T09:00:00.000Z
-
-# Machine-readable JSON (used by automated tests)
-$ node bin/queuectl.js list --state completed --json
-[{"id":"job1","command":"echo Hello World","state":"completed","attempts":0,"max_retries":3,"backoff_base":2,"created_at":"...","updated_at":"...","claimed_at":null,"heartbeat_at":null,"worker_id":null,"next_retry_at":"...","last_error":null}]
-```
-
-### Dead Letter Queue
-
-```bash
-# List dead jobs
+# List all dead jobs
 node bin/queuectl.js dlq list
 
-# Retry a dead job (resets attempts to 0)
+# Manually revive a job (resets attempts and moves back to pending)
 node bin/queuectl.js dlq retry job1
 ```
 
-### Configuration
+---
 
+## 🔄 Job Lifecycle & State Machine
+
+```
+pending ──► processing ──► completed
+                 │
+                 ▼
+               failed ──► processing (after backoff delay)
+                 │
+                 ▼
+                dead (DLQ, after max_retries exhausted)
+```
+* **Retry & Backoff**: Delays scale exponentially: `backoff_base ^ attempts` seconds. 
+
+---
+
+## 🧪 Automated Test Suite
+
+A rigorous automated testing script verifies all constraints and edge cases.
 ```bash
-# Set global defaults (only affects future jobs)
-node bin/queuectl.js config set max-retries 5
-node bin/queuectl.js config set backoff-base 3
-```
-
-## Job Lifecycle
-
-```
-pending → processing → completed
-                    ↘ failed → processing (after backoff)
-                                  ↘ ... → dead (DLQ, after max_retries)
-```
-
-- **pending**: Waiting to be claimed by a worker
-- **processing**: Claimed by a worker, currently executing
-- **completed**: Finished successfully (exit code 0)
-- **failed**: Execution failed, will retry after backoff delay
-- **dead**: All retries exhausted, moved to dead letter queue
-
-## Retry & Backoff
-
-- Delay: `backoff_base ^ attempts` seconds (exponential)
-- Default: base=2, max_retries=3 → delays of 2s, 4s, 8s
-- After `max_retries` failures → moves to `dead` (DLQ)
-- `dlq retry` resets attempts to 0 (fresh start)
-
-## Running Tests
-
-\`\`\`bash
 node scripts/verify.js
-\`\`\`
+```
+**Scenarios Verified:**
+1. Basic execution & completion.
+2. Exponential backoff and DLQ transitions.
+3. **Concurrency Exactly-Once**: 10 jobs across 3 workers execute with 0 duplicates.
+4. **SIGKILL Recovery**: Validates the Reaper successfully reclaims a job from a hard-killed worker process.
+5. Data persistence across process restarts.
 
-This runs 5 automated scenarios in sequence, verifying all core constraints:
-1. **Basic job completes**: A simple echo job is enqueued, processed, and moves to `completed`.
-2. **Failing job retries with backoff → DLQ**: A failing job correctly increments attempts, waits for backoff, and eventually lands in `dead`.
-3. **Concurrency Exactly Once**: 10 jobs processed across 3 workers concurrently finish with 0 duplicates.
-4. **SIGKILL Recovery**: A worker is hard-killed mid-execution. The reaper claims it after the 20s lease timeout and it successfully recovers.
-5. **Process Restart**: Jobs survive a full process restart without data loss.
+---
 
-*Note: Tests wipe the local `data/` and `workers/` directories for isolation.*
+## ✨ Premium Web Dashboard (Bonus Feature)
 
-## Demo Recording
-🎥 **[Watch the end-to-end demo recording here](https://example.com/queuectl-demo)** (Demonstrates usage, concurrency, and crash recovery).
-
-## Web Dashboard (Bonus)
-
-A real-time monitoring dashboard is included as a bonus feature.
+QueueCTL includes a real-time, glassmorphism-styled web telemetry dashboard!
 
 ```bash
-node bin/queuectl.js dashboard          # starts on http://localhost:3000
-node bin/queuectl.js dashboard --port 8080  # custom port
+node bin/queuectl.js dashboard
 ```
+*Open `http://localhost:3000` in your browser.*
 
-The dashboard polls the SQLite database every 2 seconds and displays live job state counts and active worker PIDs. It uses Express.js for the API and vanilla HTML/CSS/JS for the frontend.
+<div align="center">
+  <img src="https://img.shields.io/badge/UI-Glassmorphism-purple?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Updates-Realtime-green?style=for-the-badge" />
+</div>
 
-## Project Structure
-
-```
-queuectl/
-├── bin/queuectl.js           # CLI entry point (commander)
-├── public/
-│   └── index.html            # Dashboard frontend (vanilla HTML/CSS/JS)
-├── src/
-│   ├── db.js                 # SQLite connection + schema
-│   ├── models/
-│   │   ├── job.js            # Job CRUD
-│   │   └── config.js         # Config get/set
-│   ├── worker/
-│   │   ├── supervisor.js     # Forks N workers, manages lifecycle
-│   │   ├── loop.js           # Claim loop + reaper + heartbeat
-│   │   └── registry.js       # PID file management
-│   └── commands/
-│       ├── enqueue.js        # enqueue handler
-│       ├── worker.js         # worker start/stop handlers
-│       ├── status.js         # status handler
-│       ├── list.js           # list handler
-│       ├── dlq.js            # dlq list/retry handlers
-│       ├── config.js         # config set handler
-│       └── dashboard.js      # dashboard server handler
-├── scripts/verify.js         # Self-test script
-├── DECISIONS.md              # Design decision rationale
-└── README.md                 # This file
-```
+- Features smooth micro-animations, glowing accent dropshadows, and a pulsing heartbeat indicator.
+- Fully dynamic layout displaying aggregated job states and active worker PID badges.
+- Automatically built with vanilla CSS (Zero external dependencies).
