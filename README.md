@@ -156,3 +156,5 @@ node bin/queuectl.js dashboard
 - Features smooth micro-animations, glowing accent dropshadows, and a pulsing heartbeat indicator.
 - Fully dynamic layout displaying aggregated job states and active worker PID badges.
 - Automatically built with vanilla CSS (Zero external dependencies).
+
+> 💡 **Live Demo Note**: If you are viewing the live deployment URL on Render, a background simulation script is actively running! It automatically enqueues a new sleep job every 4 seconds and spins up 2 background workers to process them, ensuring the dashboard is always alive and actively demonstrating the state transitions.
